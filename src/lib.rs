@@ -17,7 +17,7 @@ mod tests {
 
     #[test]
     fn test_read() {
-        let file = PathBuf::from("../test/toc");
-        Toc::read(file);
+        let file = PathBuf::from("test/toc");
+        Toc::read(file).unwrap();
     }
 }

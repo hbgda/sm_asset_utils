@@ -1,22 +1,26 @@
 pub mod header;
 pub mod section;
 
-use std::{path::PathBuf, fs::File, error::Error, io::{BufReader, copy, Read, BufRead}};
+use std::{path::PathBuf, fs::File, error::Error, io::{BufReader, copy, Read, BufRead}, hash::Hash, collections::HashMap};
 use flate2::bufread::ZlibDecoder;
+
+use self::section::{SectionInfo, ArchiveFileEntry};
 
 const TOC_SIGNATURE: [u8; 4] = [0xAF, 0x12, 0xAF, 0x77];
 
 pub struct Toc {
     file: PathBuf,
+    header: header::TocHeader,
+    archive_entries: Vec<ArchiveFileEntry>,
 
 }
 
 impl Toc {
     pub fn read(path: PathBuf) -> Result<Toc, Box<dyn Error>> {
         let file_buf = BufReader::new(File::open(path)?);        
-        let toc_buf = Toc::decompress(file_buf)?;
+        let toc_buf = Toc::decompress(file_buf).unwrap();
         Toc::parse(toc_buf).unwrap();
-        Err("".into())
+        todo!()
     }
 
     pub fn parse(buf: Vec<u8>) -> Result<Toc, Box<dyn Error>> {
@@ -24,7 +28,15 @@ impl Toc {
         println!("Header: {header:?}");
 
         let data = &buf[16..];
-        
+        let section = Toc::_parse_section_info(&data[0..12])?;
+        println!("{section:?}");
+        let offset = section.offset as usize - 16;
+        let size = section.size as usize;
+
+        let afe = Toc::_parse_archive_entries(&data[offset..offset + size]);
+        for entry in afe {
+            println!("Name: {}", entry.get_filename()?);
+        }
         todo!()
     }
 
@@ -37,15 +49,6 @@ impl Toc {
 
         let mut _size_buf = [0u8; 4];
         buf.read_exact(&mut _size_buf)?;
-
-        // let mut zlib_sig = [0u8; 2];
-        // buf.read_exact(&mut zlib_sig)?;
-        // if zlib_sig != ZLIB_SIGNATURE {
-        //     return Err(format!("Expected zlib signature {ZLIB_SIGNATURE:#x?}, got {zlib_sig:#x?}.").into())
-        // }
-
-        // let mut compressed_buf = Vec::new();
-        // buf.read_to_end(&mut compressed_buf)?;
         
         let mut decoder = ZlibDecoder::new(buf);
         let mut out = vec![];
@@ -58,5 +61,32 @@ impl Toc {
 
     pub fn compress<T: BufRead>(buf: T) -> Vec<u8> {
         todo!()
+    }
+}
+
+impl Toc {
+    fn _parse_section_info(buf: &[u8]) -> Result<SectionInfo, Box<dyn Error>> {
+        if buf.len() < 12 {
+            return Err("Invalid section buffer.".into())
+        }
+        Ok(unsafe {
+            *(&buf[0]
+                as *const u8
+                as *const SectionInfo
+            )
+        })
+    }
+    fn _parse_archive_entries(buf: &[u8]) -> Vec<ArchiveFileEntry> {
+        let mut entries = Vec::new();
+        for i in 0..buf.len() / 72 {
+            let i = i * 72;
+            entries.push(unsafe {
+                *(&buf[i]
+                    as *const u8
+                    as *const ArchiveFileEntry
+                )
+            });
+        }
+        entries
     }
 }
