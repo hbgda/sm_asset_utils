@@ -10,14 +10,14 @@ mod tests {
 
     #[test]
     fn test_decompress() {
-        let file = BufReader::new(File::open("toc").unwrap());
+        let file = BufReader::new(File::open("test/toc").unwrap());
         let toc_buf = Toc::decompress(file).unwrap();
-        std::fs::write("toc.dec", toc_buf).unwrap();
+        std::fs::write("test/toc.dec", toc_buf).unwrap();
     }
 
     #[test]
     fn test_read() {
-        let file = PathBuf::from("toc");
+        let file = PathBuf::from("../test/toc");
         Toc::read(file);
     }
 }
