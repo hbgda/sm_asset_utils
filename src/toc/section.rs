@@ -16,9 +16,21 @@ pub struct ArchiveFileEntry {
 
 #[derive(Debug, Clone, Copy)]
 pub struct ArchiveSizeEntry {
-    chunks: u32,
-    size: u32,
-    chunk_idx: u32
+    pub chunks: u32,
+    pub size: u32,
+    pub chunk_idx: u32
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct ArchiveChunkEntry {
+    pub asset_file: u32,
+    pub offset: u32
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct ArchiveSpanEntry {
+    pub offset: u32,
+    pub size: u32
 }
 
 impl ArchiveFileEntry {
