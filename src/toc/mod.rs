@@ -11,7 +11,7 @@ const TOC_SIGNATURE: [u8; 4] = [0xAF, 0x12, 0xAF, 0x77];
 pub struct Toc {
     file: PathBuf,
     header: header::TocHeader,
-    archive_entries: Vec<ArchiveFileEntry>,
+    entries: Vec<ArchiveFileEntry>,
 
 }
 
@@ -24,19 +24,28 @@ impl Toc {
     }
 
     pub fn parse(buf: Vec<u8>) -> Result<Toc, Box<dyn Error>> {
+        let mut off = 0;
         let header = header::parse(&buf[0..16])?;
-        println!("Header: {header:?}");
+        off += 16;
 
-        let data = &buf[16..];
-        let section = Toc::_parse_section_info(&data[0..12])?;
-        println!("{section:?}");
-        let offset = section.offset as usize - 16;
+        let section = Toc::_parse_section_info(&buf[off..off + 12])?;
+        let offset = section.offset as usize;
         let size = section.size as usize;
-
-        let afe = Toc::_parse_archive_entries(&data[offset..offset + size]);
-        for entry in afe {
+        let entries = Toc::_parse_archive_entries(&buf[offset..offset + size]);
+        for entry in entries {
             println!("Name: {}", entry.get_filename()?);
         }
+        off += 12;
+
+        let section = Toc::_parse_section_info(&buf[off..off + 12])?;
+        println!("{section:?}");
+        let offset = section.offset as usize;
+        let size = section.size as usize;
+        let hashes = Toc::_parse_asset_hashes(&buf[offset..offset + size]);
+        // println!("{hashes:#X?}");
+        off += 12;
+
+
         todo!()
     }
 
@@ -76,6 +85,7 @@ impl Toc {
             )
         })
     }
+
     fn _parse_archive_entries(buf: &[u8]) -> Vec<ArchiveFileEntry> {
         let mut entries = Vec::new();
         for i in 0..buf.len() / 72 {
@@ -88,5 +98,16 @@ impl Toc {
             });
         }
         entries
+    }
+
+    fn _parse_asset_hashes(buf: &[u8]) -> Vec<u64> {
+        let mut hashes = Vec::new();
+        for i in 0..buf.len() / 8 {
+            let i = i * 8;
+            hashes.push(
+                u64::from_le_bytes(buf[i..i + 8].try_into().unwrap())
+            );
+        }
+        hashes
     }
 }
