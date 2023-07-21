@@ -14,6 +14,13 @@ pub struct ArchiveFileEntry {
     file_name_bytes: [u8; 64]
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct ArchiveSizeEntry {
+    chunks: u32,
+    size: u32,
+    chunk_idx: u32
+}
+
 impl ArchiveFileEntry {
     pub fn get_filename(&self) -> Result<String, Box<dyn Error>> {
         Ok(

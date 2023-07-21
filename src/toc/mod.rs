@@ -1,18 +1,19 @@
 pub mod header;
 pub mod section;
 
-use std::{path::PathBuf, fs::File, error::Error, io::{BufReader, copy, Read, BufRead}, hash::Hash, collections::HashMap};
+use std::{path::PathBuf, fs::File, error::Error, io::{BufReader, copy, Read, BufRead}, hash::{Hash, self}, collections::HashMap};
 use flate2::bufread::ZlibDecoder;
 
-use self::section::{SectionInfo, ArchiveFileEntry};
+use self::section::{SectionInfo, ArchiveFileEntry, ArchiveSizeEntry};
 
 const TOC_SIGNATURE: [u8; 4] = [0xAF, 0x12, 0xAF, 0x77];
 
 pub struct Toc {
     file: PathBuf,
     header: header::TocHeader,
-    entries: Vec<ArchiveFileEntry>,
-
+    file_entries: Vec<ArchiveFileEntry>,
+    asset_hashes: Vec<u64>,
+    size_entries: Vec<ArchiveSizeEntry>
 }
 
 impl Toc {
@@ -31,20 +32,28 @@ impl Toc {
         let section = Toc::_parse_section_info(&buf[off..off + 12])?;
         let offset = section.offset as usize;
         let size = section.size as usize;
-        let entries = Toc::_parse_archive_entries(&buf[offset..offset + size]);
-        for entry in entries {
-            println!("Name: {}", entry.get_filename()?);
-        }
+        let file_entries = Toc::_parse_archive_entries(&buf[offset..offset + size]);
+        // for entry in file_entries {
+        //     println!("Name: {}", entry.get_filename()?);
+        // }
         off += 12;
 
         let section = Toc::_parse_section_info(&buf[off..off + 12])?;
-        println!("{section:?}");
         let offset = section.offset as usize;
         let size = section.size as usize;
         let hashes = Toc::_parse_asset_hashes(&buf[offset..offset + size]);
-        // println!("{hashes:#X?}");
+        println!("Hashes: {}", hashes.len());
         off += 12;
 
+        let section = Toc::_parse_section_info(&buf[off..off + 12])?;
+        let offset = section.offset as usize;
+        let size = section.size as usize;
+        let size_entries = Toc::_parse_size_entries(&buf[offset..offset + size]);
+        println!("Size Entries: {}", size_entries.len());
+
+        if size_entries.len() != hashes.len() {
+            return Err("Failed to properly parse toc file.".into());
+        }
 
         todo!()
     }
@@ -109,5 +118,19 @@ impl Toc {
             );
         }
         hashes
+    }
+    
+    fn _parse_size_entries(buf: &[u8]) -> Vec<ArchiveSizeEntry> {
+        let mut entries = Vec::new();
+        for i in 0..buf.len() / 12 {
+            let i = i * 12;
+            entries.push( unsafe {
+                *(&buf[i]
+                    as *const u8
+                    as *const ArchiveSizeEntry
+                )
+            });
+        }
+        entries
     }
 }
