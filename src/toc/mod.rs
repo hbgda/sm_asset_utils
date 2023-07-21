@@ -33,6 +33,7 @@ impl Toc {
         let offset = section.offset as usize;
         let size = section.size as usize;
         let file_entries = Toc::_parse_archive_entries(&buf[offset..offset + size]);
+        println!("File Entries: {}", file_entries.len());
         // for entry in file_entries {
         //     println!("Name: {}", entry.get_filename()?);
         // }
@@ -41,8 +42,8 @@ impl Toc {
         let section = Toc::_parse_section_info(&buf[off..off + 12])?;
         let offset = section.offset as usize;
         let size = section.size as usize;
-        let hashes = Toc::_parse_asset_hashes(&buf[offset..offset + size]);
-        println!("Hashes: {}", hashes.len());
+        let asset_hashes = Toc::_parse_asset_hashes(&buf[offset..offset + size]);
+        println!("Asset Hashes: {}", asset_hashes.len());
         off += 12;
 
         let section = Toc::_parse_section_info(&buf[off..off + 12])?;
@@ -50,11 +51,20 @@ impl Toc {
         let size = section.size as usize;
         let size_entries = Toc::_parse_size_entries(&buf[offset..offset + size]);
         println!("Size Entries: {}", size_entries.len());
+        off += 12;
 
-        if size_entries.len() != hashes.len() {
+        if size_entries.len() != asset_hashes.len() {
             return Err("Failed to properly parse toc file.".into());
         }
 
+        let section = Toc::_parse_section_info(&buf[off..off + 12])?;
+        let offset = section.offset as usize;
+        let size = section.size as usize;
+        let key_hashes = Toc::_parse_key_hashes(&buf[offset..offset + size]);
+        println!("Key Hashes  : {}", key_hashes.len());
+        off += 12;
+
+        
         todo!()
     }
 
@@ -113,9 +123,12 @@ impl Toc {
         let mut hashes = Vec::new();
         for i in 0..buf.len() / 8 {
             let i = i * 8;
-            hashes.push(
-                u64::from_le_bytes(buf[i..i + 8].try_into().unwrap())
-            );
+            hashes.push( unsafe {
+                *(&buf[i]
+                    as *const u8
+                    as *const u64
+                )
+            });
         }
         hashes
     }
@@ -132,5 +145,19 @@ impl Toc {
             });
         }
         entries
+    }
+
+    fn _parse_key_hashes(buf: &[u8]) -> Vec<u64> {
+        let mut hashes = Vec::new();
+        for i in 0..buf.len() / 8 {
+            let i = i * 8;
+            hashes.push(unsafe {
+                *(&buf[i]
+                    as *const u8
+                    as *const u64
+                )
+            });
+        }
+        hashes
     }
 }
