@@ -1,6 +1,7 @@
 pub mod config;
 pub mod localization;
 pub mod toc;
+pub mod utils;
 
 #[cfg(test)]
 mod tests {

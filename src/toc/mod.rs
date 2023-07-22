@@ -1,17 +1,18 @@
 pub mod header;
 pub mod section;
 
-use std::{path::PathBuf, fs::File, error::Error, io::{BufReader, copy, Read, BufRead}, hash::{Hash, self}, collections::HashMap};
+use std::{path::PathBuf, fs::File, error::Error, io::{BufReader, copy, Read, BufRead, BufWriter}, hash::{Hash, self}, collections::HashMap, ops::Index};
 use flate2::bufread::ZlibDecoder;
 
-use crate::toc::section::ArchiveSpanEntry;
+use crate::{toc::section::ArchiveSpanEntry, utils};
 
-use self::section::{SectionInfo, ArchiveFileEntry, ArchiveSizeEntry, ArchiveChunkEntry};
+use self::section::{SectionInfo, ArchiveFileEntry, ArchiveSizeEntry, ArchiveChunkEntry, Section};
 
 const TOC_SIGNATURE: [u8; 4] = [0xAF, 0x12, 0xAF, 0x77];
 
 pub struct Toc {
     header: header::TocHeader,
+    sections: HashMap<Section, SectionInfo>,
     file_entries: Vec<ArchiveFileEntry>,
     asset_hashes: Vec<u64>,
     size_entries: Vec<ArchiveSizeEntry>,
@@ -32,30 +33,40 @@ impl Toc {
         let header = header::parse(&buf[0..16])?;
         off += 16;
 
-        let (_, file_entries) = Toc::_parse_section::<ArchiveFileEntry>(&buf, &mut off)?;
+        let (file_section, file_entries) = Toc::_parse_section::<ArchiveFileEntry>(&buf, &mut off)?;
         println!("File Entries  : {}", file_entries.len());
 
-        let (_, asset_hashes) = Toc::_parse_section::<u64>(&buf, &mut off)?;
+        let (asset_section, asset_hashes) = Toc::_parse_section::<u64>(&buf, &mut off)?;
         println!("Asset Hashes  : {}", asset_hashes.len());
 
-        let (_, size_entries) = Toc::_parse_section::<ArchiveSizeEntry>(&buf, &mut off)?;
+        let (size_section, size_entries) = Toc::_parse_section::<ArchiveSizeEntry>(&buf, &mut off)?;
         println!("Size Entries  : {}", size_entries.len());
 
         if size_entries.len() != asset_hashes.len() {
             return Err("Failed to properly parse toc file.".into());
         }
 
-        let (_, key_hashes) = Toc::_parse_section::<u64>(&buf, &mut off)?;
+        let (key_section, key_hashes) = Toc::_parse_section::<u64>(&buf, &mut off)?;
         println!("Key Hashes    : {}", key_hashes.len());
 
-        let (_, chunk_entries) = Toc::_parse_section::<ArchiveChunkEntry>(&buf, &mut off)?;
+        let (chunk_section, chunk_entries) = Toc::_parse_section::<ArchiveChunkEntry>(&buf, &mut off)?;
         println!("Chunk Entries : {}", chunk_entries.len());
         
-        let (_, span_entries) = Toc::_parse_section::<ArchiveSpanEntry>(&buf, &mut off)?;
+        let (span_section, span_entries) = Toc::_parse_section::<ArchiveSpanEntry>(&buf, &mut off)?;
         println!("Span Entries  : {}", span_entries.len());
+
+        let sections = HashMap::from([
+            (Section::FileEntries, file_section),
+            (Section::AssetHashes, asset_section),
+            (Section::SizeEntries, size_section),
+            (Section::KeyHashes, key_section),
+            (Section::ChunkEntries, chunk_section),
+            (Section::SpanEntries, span_section)
+        ]);
 
         Ok(Toc {
             header,
+            sections,
             file_entries,
             asset_hashes,
             size_entries,
@@ -86,6 +97,85 @@ impl Toc {
 
     pub fn compress<T: BufRead>(buf: T) -> Vec<u8> {
         todo!()
+    }
+}
+
+impl Toc {
+    pub fn save_to(&self, path: PathBuf) -> Result<(), Box<dyn Error>> {
+        todo!()
+    }
+
+    pub unsafe fn as_buf(&self) -> Vec<u8> {
+        let mut buf = Vec::<u8>::new();
+
+        let header_buf = utils::as_buf(&self.header);
+        buf.extend(header_buf);
+
+        
+        todo!()
+    }
+
+    pub fn add_entry(&mut self, file_name: String, offset: u32, size: u32, hash: u64, span_idx: usize) -> Result<(), Box<dyn Error>> {
+        let span = match self.span_entries.get(span_idx as usize) {
+            Some(entry) => entry,
+            None => return  Err("Invalid group.".into())
+        }; 
+
+        let mut asset_offset = span.offset as usize;
+        while asset_offset < (self.span_entries[span_idx].offset + self.span_entries[span_idx].size) as usize && hash > self.asset_hashes[asset_offset] {
+            asset_offset += 1;
+        }
+
+        if hash == self.asset_hashes[asset_offset] {
+            let idx = self.index_of_entry(file_name).unwrap();
+            println!("Hash already exists, updating asset.");
+            self.size_entries[asset_offset] = ArchiveSizeEntry {
+                chunks: 1,
+                size,
+                chunk_idx: asset_offset as u32
+            };
+            self.chunk_entries[asset_offset] = ArchiveChunkEntry {
+                asset_file: idx as u32,
+                offset
+            };
+            return Ok(());
+        }
+        
+        let span = self.span_entries.get_mut(span_idx).unwrap();
+        span.size += 1;
+
+        for entry in self.span_entries[span_idx + 1..].iter_mut() {
+            entry.offset += 1;
+        }
+
+        self.asset_hashes.insert(asset_offset, hash);
+        let chunk_map = 10000 + self.file_entries.len() as u32;
+        self.file_entries.push(
+            ArchiveFileEntry::new(file_name, 0, chunk_map)?
+        );
+        self.chunk_entries.insert(asset_offset, ArchiveChunkEntry {
+            asset_file: self.file_entries.len() as u32 - 1,
+            offset
+        });
+        self.size_entries.insert(asset_offset, ArchiveSizeEntry {
+            chunks: 1,
+            size,
+            chunk_idx: asset_offset as u32           
+        });
+
+        for entry in self.size_entries[asset_offset + 1..].iter_mut() {
+            entry.chunk_idx += 1;
+        } 
+
+        Ok(())
+    }
+
+    pub fn find_entry(&self, file_name: String) -> Option<&ArchiveFileEntry> {
+        self.file_entries.iter().find(|e| e.get_file_name().unwrap() == file_name)
+    }
+
+    pub fn index_of_entry(&self, file_name: String) -> Option<usize> {
+        self.file_entries.iter().position(|e| e.get_file_name().unwrap() == file_name)
     }
 }
 
@@ -123,21 +213,5 @@ impl Toc {
                 as *const SectionInfo
             )
         })
-    }
-
-    fn _parse_archive_entries(buf: &[u8]) -> Vec<ArchiveFileEntry> {
-        Toc::_parse_buf(buf)
-    }
-
-    fn _parse_hashes(buf: &[u8]) -> Vec<u64> {
-        Toc::_parse_buf(buf)
-    }
-    
-    fn _parse_size_entries(buf: &[u8]) -> Vec<ArchiveSizeEntry> {
-        Toc::_parse_buf(buf)
-    }
-
-    fn _parse_chunk_entries(buf: &[u8]) -> Vec<ArchiveChunkEntry> {
-        Toc::_parse_buf(buf)
     }
 }

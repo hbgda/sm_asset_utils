@@ -1,5 +1,6 @@
 use std::error::Error;
 
+#[repr(C)]
 #[derive(Debug, Clone, Copy)]
 pub struct TocHeader {
     pub hash: u32,
