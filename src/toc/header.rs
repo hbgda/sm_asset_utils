@@ -3,15 +3,16 @@ use std::error::Error;
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
 pub struct TocHeader {
+    pub magic: u32,
     pub hash: u32,
     pub size: u32,
     pub sections: u32
 }
 
-const HEADER_SIGNATURE: [u8; 4] = [0x31, 0x54, 0x41, 0x44];
+pub const HEADER_SIGNATURE: [u8; 4] = [0x31, 0x54, 0x41, 0x44];
 
 pub fn parse(buf: &[u8]) -> Result<TocHeader, Box<dyn Error>> {
-    if buf.len() < 16 {
+    if buf.len() != 16 {
         return Err("Invalid buffer for Toc Header.".into());
     }
     if buf[0..4] != HEADER_SIGNATURE {
@@ -25,7 +26,7 @@ pub fn parse(buf: &[u8]) -> Result<TocHeader, Box<dyn Error>> {
         somehow passes an invalid header buffer.
     */ 
     Ok(unsafe {
-        *(&buf[4..16][0]
+        *(&buf[0]
             as *const u8
             as *const TocHeader
         ) 

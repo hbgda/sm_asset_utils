@@ -1,6 +1,6 @@
 use std::error::Error;
 
-#[derive(Eq, PartialEq, Hash)]
+#[derive(Debug, Eq, PartialEq, Hash)]
 pub enum Section {
     FileEntries,
     AssetHashes,

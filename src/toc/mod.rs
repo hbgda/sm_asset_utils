@@ -2,7 +2,7 @@ pub mod header;
 pub mod section;
 
 use std::{path::PathBuf, fs::File, error::Error, io::{BufReader, copy, Read, BufRead, BufWriter}, hash::{Hash, self}, collections::HashMap, ops::Index};
-use flate2::bufread::ZlibDecoder;
+use flate2::{bufread::ZlibDecoder, bufread::ZlibEncoder, Compression};
 
 use crate::{toc::section::ArchiveSpanEntry, utils};
 
@@ -89,14 +89,20 @@ impl Toc {
         let mut decoder = ZlibDecoder::new(buf);
         let mut out = vec![];
         
-        copy(&mut decoder, &mut out)
-            .expect("Failed to read from toc file.");
+        copy(&mut decoder, &mut out)?;
         
         Ok(out)
     }
 
-    pub fn compress<T: BufRead>(buf: T) -> Vec<u8> {
-        todo!()
+    pub unsafe fn compress(buf: Vec<u8>) -> Result<Vec<u8>, Box<dyn Error>> {
+        let mut compressed = Vec::new();
+
+        compressed.extend(&[0xAF, 0x12, 0xAF, 0x77]);
+        compressed.extend(utils::as_buf(&(buf.len() as u32)));
+        let mut encoder = ZlibEncoder::new(&*buf, Compression::best());
+        copy(&mut encoder, &mut compressed)?;
+
+        Ok(compressed)
     }
 }
 
@@ -106,13 +112,63 @@ impl Toc {
     }
 
     pub unsafe fn as_buf(&self) -> Vec<u8> {
-        let mut buf = Vec::<u8>::new();
+        let mut buf = Vec::new();
 
-        let header_buf = utils::as_buf(&self.header);
-        buf.extend(header_buf);
+        // Mutate later to update size
+        buf.extend(utils::as_buf(&self.header));
+        // Empty slot for section data
+        buf.extend(&vec![0; 72]);
 
-        
-        todo!()
+        let mut string_buf = b"ArchiveTOC".to_vec();
+        string_buf.resize(24, 0);
+        buf.extend(string_buf);
+
+
+        let mut sections = self.sections.iter().collect::<Vec<_>>();
+        sections.sort_by(|a, b| a.1.offset.cmp(&b.1.offset));
+
+        let mut section_idx = 0;
+        for (section, mut section_info) in sections.iter_mut().map(|(s, i)| (s.clone(), i.clone())) {
+            section_info.offset = buf.len() as u32;
+            match section {
+                Section::FileEntries => {
+                    section_idx = 0;
+                    section_info.size = (std::mem::size_of::<ArchiveFileEntry>() * self.file_entries.len()) as u32;
+                    self.file_entries.iter().for_each(|e| buf.extend(utils::as_buf(e)));
+                },
+                Section::AssetHashes => {
+                    section_idx = 1;
+                    section_info.size = (std::mem::size_of::<u64>() * self.asset_hashes.len()) as u32;
+                    self.asset_hashes.iter().for_each(|e| buf.extend(utils::as_buf(e)));
+                },
+                Section::SizeEntries => {
+                    section_idx = 2;
+                    section_info.size = (std::mem::size_of::<ArchiveSizeEntry>() * self.size_entries.len()) as u32;
+                    self.size_entries.iter().for_each(|e| buf.extend(utils::as_buf(e)));
+                },
+                Section::KeyHashes => {
+                    section_idx = 3;
+                    section_info.size = (std::mem::size_of::<u64>() * self.key_hashes.len()) as u32;
+                    self.key_hashes.iter().for_each(|e| buf.extend(utils::as_buf(e)));
+                },
+                Section::ChunkEntries => {
+                    section_idx = 4;
+                    section_info.size = (std::mem::size_of::<ArchiveChunkEntry>() * self.chunk_entries.len()) as u32;
+                    self.chunk_entries.iter().for_each(|e| buf.extend(utils::as_buf(e)));
+                },
+                Section::SpanEntries => {
+                    section_idx = 5;
+                    section_info.size = (std::mem::size_of::<ArchiveSpanEntry>() * self.span_entries.len()) as u32;
+                    self.span_entries.iter().for_each(|e| buf.extend(utils::as_buf(e)));
+                },
+            }
+            let idx = 16 + (section_idx * 12);
+            buf[idx..idx + 12].copy_from_slice(utils::as_buf(&section_info));
+        }
+        let len = buf.len().clone() as u32;
+        let len_buf = utils::as_buf(&len);
+        buf[8..12].copy_from_slice(len_buf);
+        buf
     }
 
     pub fn add_entry(&mut self, file_name: String, offset: u32, size: u32, hash: u64, span_idx: usize) -> Result<(), Box<dyn Error>> {

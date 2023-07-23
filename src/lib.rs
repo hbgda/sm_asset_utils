@@ -21,4 +21,21 @@ mod tests {
         let file = PathBuf::from("test/toc");
         Toc::read(file).unwrap();
     }
+
+    #[test]
+    fn test_encode_buf() {
+        let file = PathBuf::from("test/toc");
+        let toc = Toc::read(file).unwrap();
+        let buf = unsafe { toc.as_buf() };
+        let encoded = unsafe { Toc::compress(buf) }.unwrap();
+        std::fs::write("test/toc.test", encoded).unwrap();
+    }
+
+    #[test]
+    fn test_as_buf() {
+        let file = PathBuf::from("test/toc");
+        let toc = Toc::read(file).unwrap();
+        let buf = unsafe { toc.as_buf() };
+        std::fs::write("test/toc.buf", buf).unwrap();
+    }
 }
